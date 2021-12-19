@@ -24,17 +24,17 @@ adc_2 = ADC(Pin(33))
 adc_2.atten(ADC.ATTN_0DB)
 
 # 12 bit data - this is the default configuration
-adc_2.width(ADC.WIDTH_12BIT)
+adc_2.width(ADC.WIDTH_10BIT)
 
 # Define ADC Scale
-Adc_voltage_sensor_scale = 4095
+Adc_voltage_sensor_scale = 1023.0
 
 # Define ADC Reference Voltage
-ADC_Voltage_Sensor_Reference = 5
+ADC_Voltage_Sensor_Reference = 5.0
 
 # --------------------- CONVERSION PARAMETERS -----------------------
 # Define AC Voltage Frequency
-AC_Voltage_Frequency = 50
+AC_Voltage_Frequency = 50.0
 
 # Define sensor sensitivity
 AC_Voltage_Sensor_Sensitivity = 0.0050
@@ -52,20 +52,31 @@ AC_Voltage_Sensor_Sensitivity = 0.0050
 def Calibrate_Voltage_Sensor_ZMPT101B():
 
     # --------------------- SENSOR CALIBRATION --------------------------
+    # Calculate AC Voltage Period
+    AC_Voltage_Period = 1000000 / AC_Voltage_Frequency
+
     # Define a sum of readings from ADC
     Sum_of_readings_from_ADC = 0
 
-    # Define a number of samples per calibration
-    Number_of_calibration_samples = 10
+    # Get start time of data aquisition
+    start_time_of_aquisition = time.ticks_us()
 
-    # Aquire a number of samples in a sum buffer
-    for i in range(0,Number_of_calibration_samples):
+    # Init number of aquisitions variable
+    Number_Of_Aquisitions = 0
 
-        # Aquire signal from ADC
-        Sum_of_readings_from_ADC += adc_2.read()
+    while (time.ticks_us() - start_time_of_aquisition < AC_Voltage_Period):
+
+        # Add Readings to sum
+        ADC_voltage_sensor_reading = adc_2.read()
+
+        # Add Readings to sum
+        Sum_of_readings_from_ADC += ADC_voltage_sensor_reading * ADC_voltage_sensor_reading
+
+        # Increment number of aquisitions
+        Number_Of_Aquisitions += 1
 
     # Calculate the zero point of calibration
-    Voltage_Sensor_Zero_Point_Calibration = Sum_of_readings_from_ADC / Number_of_calibration_samples
+    Voltage_Sensor_Zero_Point_Calibration = math.sqrt( Sum_of_readings_from_ADC / Number_Of_Aquisitions )
 
     # Return offset of voltage sensor
     return Voltage_Sensor_Zero_Point_Calibration
@@ -84,14 +95,14 @@ def Get_Value_From_Voltage_Sensor_ZMPT101B( Voltage_Sensor_Zero_Point_Calibratio
     # Calculate AC Voltage Period
     AC_Voltage_Period = 1000000 / AC_Voltage_Frequency
 
-    # Get start time of data aquisition
-    start_time_of_aquisition = time.ticks_us()
-
     # Define a sum of readings from ADC
     Sum_of_readings_from_ADC = 0
 
     # Define a number of aquisitions
     Number_Of_Aquisitions = 0
+
+    # Get start time of data aquisition
+    start_time_of_aquisition = time.ticks_us()
 
     while (time.ticks_us() - start_time_of_aquisition < AC_Voltage_Period):
         # Instataneous read from ADC
@@ -103,11 +114,13 @@ def Get_Value_From_Voltage_Sensor_ZMPT101B( Voltage_Sensor_Zero_Point_Calibratio
         # Increment number of aquisitions
         Number_Of_Aquisitions += 1
 
-    # Calculate AC Voltage
-    Calculated_AC_Voltage = math.sqrt( Sum_of_readings_from_ADC / Number_Of_Aquisitions) / Adc_voltage_sensor_scale * ADC_Voltage_Sensor_Reference / AC_Voltage_Sensor_Sensitivity
 
-    # Round at only 2 decimals
-    Calculated_AC_Voltage = round(Calculated_AC_Voltage, 2)
+    # Calculate AC Voltage
+    Calculated_AC_Voltage =  math.sqrt( Sum_of_readings_from_ADC / Number_Of_Aquisitions) / Adc_voltage_sensor_scale * ( ADC_Voltage_Sensor_Reference / AC_Voltage_Sensor_Sensitivity )
+
+    # Round at only 1 decimals
+    Calculated_AC_Voltage = round(Calculated_AC_Voltage, 1)
 
     # Return calculated value
     return Calculated_AC_Voltage
+

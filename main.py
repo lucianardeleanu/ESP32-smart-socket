@@ -11,10 +11,12 @@ __email__ = "lucian.ardeleanu@autoliv.com"
 __status__ = "In-Work"
 
 
-# ============ IMPORTS ==================
+# -------------------------- IMPORTS ------------------------------
 import time
 import math
 import pyRTOS
+import ACS_712_Current_Sensor
+import ZMPT101B_Voltage_Sensor
 
 from mcp2515_can_lib import (
     CAN,
@@ -27,234 +29,276 @@ from mcp2515_can_lib import (
 )
 from mcp2515_can_lib import SPIESP32 as SPI
 from mcp2515_can_lib import CANFrame
-
+import dht
+import machine
 from machine import Pin
 from machine import ADC
-# =======================================
+
+
+# -------------------- GLOBAL INITIALISATIONS ---------------------
+
+
+# print a message before starting initialisation
+print("===================================================")
+print("        --------------------------------           ")
+print("        | ESP32 SMART PLUG IOT PROJECT |           ")
+print("        --------------------------------           ")
+print("   Author: Ardeleanu Lucian                        ")
+print(' DO NOT CONNECT NOTHING IN PLUG WHILE CALIBRATING! ')
+print("===================================================")
+
+# ---------- CAN Initialisation -----------
+can = CAN(SPI(cs=27))
+
+# Configuration
+if can.reset() != ERROR.ERROR_OK:
+    print("Can not reset for MCP2515")
+
+if can.setBitrate(CAN_SPEED.CAN_125KBPS, CAN_CLOCK.MCP_8MHZ) != ERROR.ERROR_OK:
+    print("Can not set bitrate for MCP2515")
+
+if can.setNormalMode() != ERROR.ERROR_OK:
+    print("Can not set normal mode for MCP2515")
+
+# Keeps a small delay between inits
+time.sleep(1)
+
+# ----------- Relay Initialisation ----------
+Relay_Status = Pin(22, Pin.OUT)
+
+# Keeps a small delay between inits
+time.sleep(1)
+
+# ----- Current Sensor Initialisation -------
+# Force relay to stay on
+Relay_Status.on()
+
+# Call Calibration Function
+Calculated_AC_Current_In_Calibraton = ACS_712_Current_Sensor.Calibrate_Current_Sensor_ACS_712()
+
+# Define global value of measured current ( in Amps)
+Calculated_AC_Current = 0
+
+# Keeps a small delay between inits
+time.sleep(2)
+
+# ----- Voltage Sensor Initialisation -------
+# Force relay to stay off
+Relay_Status.off()
+
+# Keeps a small delay between inits
+time.sleep(2)
+
+# Call Calibration Function
+Voltage_Sensor_Zero_Point_Calibration = ZMPT101B_Voltage_Sensor.Calibrate_Voltage_Sensor_ZMPT101B()
+
+# Define global value of measured voltage ( in Volts )
+Calculated_AC_Voltage = 0
+
+# Keeps a small delay between inits
+time.sleep(2)
+
+# ----- Humidity Sensor Initialisation -------
+# Define sensor object
+dht_sensor_object = dht.DHT11(machine.Pin(4))
+
+# Define sensor measured humidity
+Measured_Humidity = 0
+
+# print a message after initialisation
+print('Initialisation Finished!')
+
+
+# Function used to convert a float value to a bytes-frame value
+def convert_float_to_can_frame(float_value):
+
+    # Define frame
+    frame = bytearray()
+
+    # Check if . in string
+    if '.' in str(float_value):
+
+        # Split by .
+        values_string_list = str(float_value).split('.')
+
+        # Extract values from list
+        if len(values_string_list) == 2:
+            integer_part = int(values_string_list[0])
+            decimal_part = int(values_string_list[1])
+        else:
+            integer_part = 0
+            decimal_part = 0
+
+        # Construct frame
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(integer_part)
+        frame.append(decimal_part)
+
+    else:
+        # Construct frame
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(0x00)
+        frame.append(float_value)
+
+    # Return frame
+    return frame
 
 # =========================================================
-# INIT GLOBAL FUNCTION AND VARIABLES
-# =========================================================
-
-def CAN_Init():
-    # Initialization
-    can = CAN(SPI(cs=23))
-
-    # Configuration
-    if can.reset() != ERROR.ERROR_OK:
-        print("Can not reset for MCP2515")
-        return 1
-    if can.setBitrate(CAN_SPEED.CAN_125KBPS, CAN_CLOCK.MCP_8MHZ) != ERROR.ERROR_OK:
-        print("Can not set bitrate for MCP2515")
-        return 1
-    if can.setNormalMode() != ERROR.ERROR_OK:
-        print("Can not set normal mode for MCP2515")
-        return 1
-
-    return can
-
-# =========================================================
-
-
-# =========================================================
-# DEFINE FIRST TASK OF PYRTOS
+#              DEFINE TASK OF PYRTOS
+# Task needed TRANSMITING FRAMES WITH DATA OVER CAN
 # =========================================================
 def task_1(self):
 
-    can = CAN_Init()
+    # Point to global value
+    global can
+    global Calculated_AC_Voltage
+    global Calculated_AC_Current
+    global Measured_Humidity
 
-    # Prepare frames
-    data = b"\x12\x34\x56\x78\x9A\xBC\xDE\xF0"  # type: bytes
-    sff_frame = CANFrame(can_id=0x7FF, data=data)
-    sff_none_data_frame = CANFrame(can_id=0x7FF)
-    err_frame = CANFrame(can_id=0x7FF | CAN_ERR_FLAG, data=data)
-    eff_frame = CANFrame(can_id=0x12345678 | CAN_EFF_FLAG, data=data)
-    eff_none_data_frame = CANFrame(can_id=0x12345678 | CAN_EFF_FLAG)
-    rtr_frame = CANFrame(can_id=0x7FF | CAN_RTR_FLAG)
-    rtr_with_eid_frame = CANFrame(can_id=0x12345678 | CAN_RTR_FLAG | CAN_EFF_FLAG)
-    rtr_with_data_frame = CANFrame(can_id=0x7FF | CAN_RTR_FLAG, data=data)
-    frames = [
-        sff_frame,
-        sff_none_data_frame,
-        err_frame,
-        eff_frame,
-        eff_none_data_frame,
-        rtr_frame,
-        rtr_with_eid_frame,
-        rtr_with_data_frame,
-    ]
-
-    # Read all the time and send message in each second
-    end_time, n = time.ticks_add(time.ticks_ms(), 1000), -1  # type: ignore
-    while True:
-        # error, iframe = can.readMessage()
-        # if error == ERROR.ERROR_OK:
-        #     #print("RX  {}".format(iframe))
-        #     rx_frame = iframe
-
-        if time.ticks_diff(time.ticks_ms(), end_time) >= 0:  # type: ignore
-            end_time = time.ticks_add(time.ticks_ms(), 1000)  # type: ignore
-            n += 1
-            n %= len(frames)
-
-            error = can.sendMessage(frames[n])
-            # if error == ERROR.ERROR_OK:
-            #     print("TX  {}".format(frames[n]))
-            # else:
-            #     print("TX failed with error code {}".format(error))
-
-
-        # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(10)]
-
-
-# =========================================================
-# DEFINE SECOND TASK OF PYRTOS
-# =========================================================
-def task_2(self):
-
-    can = CAN_Init()
-
-    # Init replay pin
-    relay_pin = Pin(15, Pin.OUT)
-
-    # Infinite Cicle
     while True:
 
-        error, iframe = can.readMessage()
-        if error == ERROR.ERROR_OK:
-            # print(str(iframe))
-            if (str(iframe) == "       1   [8]  01 00 00 00 00 00 00 00"):
-                relay_pin.on()
-            if (str(iframe) == "       1   [8]  00 00 00 00 00 00 00 00"):
-                relay_pin.off()
+        # -------------- SEND VOLTAGE FRAME ------------------------------
+        # Convert to bytes
+        voltage_bytes = convert_float_to_can_frame(Calculated_AC_Voltage)
 
-        # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(1)]
+        # Construct frame
+        voltage_frame = CANFrame(can_id=0x01, data=voltage_bytes)
 
-# =========================================================
-# DEFINE THIRD TASK OF PYRTOS
-# =========================================================
-def task_3(self):
+        # Send frame
+        error = can.sendMessage(voltage_frame)
 
-    adc = ADC(Pin(32))  # create ADC object on ADC pin
-    adc.atten(ADC.ATTN_11DB)  # set 11dB input attenuation (voltage range roughly 0.0v - 3.6v)
-    adc.width(ADC.WIDTH_12BIT)  # set 9 bit return values (returned range 0-4095)
+        # -------------- SEND CURRENT FRAME ------------------------------
+        # Convert to bytes
+        current_bytes = convert_float_to_can_frame(Calculated_AC_Current)
 
-    # Current sensor sensitivity in V/A
-    current_sensor_sensitivity = 0.100
+        # Construct frame
+        current_frame = CANFrame(can_id=0x02, data=current_bytes)
 
-    # Define ADC Range
-    ADC_Range = 4095
+        # Send frame
+        error = can.sendMessage(current_frame)
 
-    # Infinite Cicle
-    while True:
+        # -------------- SEND POWER FRAME ------------------------------
+        # Calculate power
+        Calculated_Electric_Power = Calculated_AC_Current * Calculated_AC_Voltage
 
-        # Read from ADC
-        ADC_reading = adc.read()
+        # Convert to bytes
+        Power_bytes = convert_float_to_can_frame(Calculated_Electric_Power)
 
-        # Read sensor output
-        sensor_output = ADC_reading * ( 3.3 / ADC_Range)
+        # Construct frame
+        Power_frame = CANFrame(can_id=0x03, data=Power_bytes)
 
-        # print("Sensor output: " + str(sensor_output) )
+        # Send frame
+        error = can.sendMessage(Power_frame)
 
-        # Calculate readed current
-        calculated_current = ( sensor_output - 2.45 ) / current_sensor_sensitivity
+        # -------------- SEND Humidity FRAME ------------------------------
+        # Convert to bytes
+        Humidity_bytes = convert_float_to_can_frame(Measured_Humidity)
 
-        # print("calculated_current: " + str(calculated_current))
+        # Construct frame
+        Humidity_frame = CANFrame(can_id=0x04, data=Humidity_bytes)
 
+        # Send frame
+        error = can.sendMessage(Humidity_frame)
+
+        print('------------------------')
+        print('Measured Voltage:', Calculated_AC_Voltage)
+        print('Measured Current:', Calculated_AC_Current)
+        print('Measured Power:', Calculated_Electric_Power)
+        print('Measured Humidity:', Measured_Humidity)
+        print('------------------------')
 
         # keep both delays same in order to avoid delay of one task over another
         yield [pyRTOS.delay(100)]
 
 
-
 # =========================================================
-#              DEFINE THIRD TASK OF PYRTOS
-# Task needed for reading Voltage Sensor ZMPT101B
-# Power Supply: 5V ( Vin PIN )
-# Output Pin: D33
+#              DEFINE TASK OF PYRTOS
+# Task needed for actuating relay and humidity receive
+# Power Supply: 3.3V
+# Output Pin: D22
 # =========================================================
-def task_4(self):
+def task_2(self):
 
-    # -------------------- ADC INITIALISATION --------------------------
-    # create ADC object on ADC pin
-    adc_2 = ADC(Pin(33))
+    # Point to global value
+    global can
 
-    # 0dB attenuation, gives a maximum input voltage of 1.00v - this is the default configuration
-    adc_2.atten(ADC.ATTN_0DB)
-
-    # 12 bit data - this is the default configuration
-    adc_2.width(ADC.WIDTH_12BIT)
-
-    # Define ADC Scale
-    Adc_voltage_sensor_scale = 4095
-
-    # Define ADC Reference Voltage
-    ADC_Voltage_Sensor_Reference = 5
-
-    # --------------------- CONVERSION PARAMETERS -----------------------
-    # Define AC Voltage Frequency
-    AC_Voltage_Frequency = 50
-
-    # Define sensor sensitivity
-    AC_Voltage_Sensor_Sensitivity = 0.0050
-
-    # --------------------- SENSOR CALIBRATION --------------------------
-    # Define a sum of readings from ADC
-    Sum_of_readings_from_ADC = 0
-
-    # Define a number of samples per calibration
-    Number_of_calibration_samples = 10
-
-    # Aquire a number of samples in a sum buffer
-    for i in range(0,Number_of_calibration_samples):
-        Sum_of_readings_from_ADC += adc_2.read()
-
-    # Calculate the zero point of calibration
-    Voltage_Sensor_Zero_Point_Calibration = Sum_of_readings_from_ADC / Number_of_calibration_samples
-
+    # Point to global values
+    global Relay_Status
+    global Measured_Humidity
+    global dht_sensor_object
 
     # ---------------------- Infinite Cicle -----------------------------
     while True:
 
-        # Calculate AC Voltage Period
-        AC_Voltage_Period = 1000000 / AC_Voltage_Frequency
+        # Measure humidity
+        dht_sensor_object.measure()
+        Measured_Humidity = dht_sensor_object.humidity()
 
-        # Get start time of data aquisition
-        start_time_of_aquisition = time.ticks_us()
+        # Call function to read CAN Message Buffer
+        error, iframe = can.readMessage()
 
-        # Define a sum of readings from ADC
-        Sum_of_readings_from_ADC = 0
+        # If message arrived and it's ok
+        if (Measured_Humidity < 75 ):
 
-        # Define a number of aquisitions
-        Number_Of_Aquisitions = 0
+            if error == ERROR.ERROR_OK:
 
-        while (time.ticks_us() - start_time_of_aquisition < AC_Voltage_Period ):
+                if (str(iframe) == "       1   [8]  01 00 00 00 00 00 00 00" ):
+                    # Set Relay ON
+                    Relay_Status.on()
 
-            # Instataneous read from ADC
-            ADC_voltage_sensor_reading = adc_2.read() - Voltage_Sensor_Zero_Point_Calibration
+                if (str(iframe) == "       1   [8]  00 00 00 00 00 00 00 00" ):
 
-            # Add Readings to sum
-            Sum_of_readings_from_ADC += ADC_voltage_sensor_reading * ADC_voltage_sensor_reading
-
-            # Increment number of aquisitions
-            Number_Of_Aquisitions += 1
-
-        # Calculate AC Voltage
-        Calculated_AC_Voltage =  math.sqrt(Sum_of_readings_from_ADC / Number_Of_Aquisitions  ) / Adc_voltage_sensor_scale * ADC_Voltage_Sensor_Reference / AC_Voltage_Sensor_Sensitivity
-
-        print("Calculated voltage:", Calculated_AC_Voltage )
+                    # Set Relay OFF
+                    Relay_Status.off()
+        else:
+            # Set Relay OFF
+            Relay_Status.off()
 
         # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(1)]
+        yield [pyRTOS.delay(100)]
+
+# ==========================================================================
+#              DEFINE TASK OF PYRTOS
+# Task needed for reading Current Sensor ACS712 and Voltage Sensor ZMPT101B
+# Power Supply: 5V ( Vin PIN )
+# Output Pin: D32 - Current Sensor ACS712
+# Output Pin: D33 - Voltage Sensor ZMPT101B
+# ==========================================================================
+def task_3(self):
+
+    # Point to global value
+    global Calculated_AC_Current
+
+    # Point to global value
+    global Calculated_AC_Voltage
+
+    # ---------------------- Infinite Cicle -----------------------------
+    while True:
+
+        # Get Current from sensor
+        Calculated_AC_Current = ACS_712_Current_Sensor.Get_Value_From_Current_Sensor_ACS_712( Calculated_AC_Current_In_Calibraton )
+
+        # Get Voltage from sensor
+        Calculated_AC_Voltage = ZMPT101B_Voltage_Sensor.Get_Value_From_Voltage_Sensor_ZMPT101B( Voltage_Sensor_Zero_Point_Calibration )
+
+        # keep both delays same in order to avoid delay of one task over another
+        yield [pyRTOS.delay(100)]
 
 
-# Add task in core of pyRTOS and set tasks properties
-# pyRTOS.add_task(pyRTOS.Task(task_1, priority=1, name="task_1"))
+# ================ CALL TASKS IN PYRTOS ENGINE ======================
+pyRTOS.add_task(pyRTOS.Task(task_1, priority=1, name="task_1"))
 pyRTOS.add_task(pyRTOS.Task(task_2, priority=1, name="task_2"))
 pyRTOS.add_task(pyRTOS.Task(task_3, priority=1, name="task_3"))
-pyRTOS.add_task(pyRTOS.Task(task_4, priority=1, name="task_4"))
 
 
 # Start pyRTOS

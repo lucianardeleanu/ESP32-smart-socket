@@ -14,6 +14,7 @@ __status__ = "In-Work"
 from machine import ADC
 from machine import Pin
 import math
+import time
 
 # -------------------- ADC INITIALISATION --------------------------
 # create ADC object on ADC pin
@@ -33,13 +34,13 @@ ADC_Current_Sensor_Reference = 5
 
 # --------------------- CONVERSION PARAMETERS -----------------------
 # Define a number of samples per calibration
-Current_Sensor_Calibration_Samples = 100
+Current_Sensor_Calibration_Samples = 10
 
 # Define current sensor sensitivity in V/A
 AC_Current_Sensor_Sensitivity = 0.100
 
 # Define current sensor middle value
-AC_Current_Sensor_Middle_Value = 2.45
+AC_Current_Sensor_Middle_Value = 2.6
 
 # =========================================================
 #   FUNCTION NEEDED FOR SENSOR CALIBRATION
@@ -58,8 +59,10 @@ def Calibrate_Current_Sensor_ACS_712():
 
     # Aquire a number of samples in a sum buffer
     for i in range(0, Current_Sensor_Calibration_Samples):
+
         # Aquire Value
         Sum_of_readings_from_ADC += adc_1.read()
+
 
     # Calculate the zero point of calibration
     Current_Sensor_Zero_Point_Calibration = Sum_of_readings_from_ADC / Current_Sensor_Calibration_Samples
@@ -91,6 +94,7 @@ def Get_Value_From_Current_Sensor_ACS_712( Calculated_AC_Current_In_Calibraton )
     Number_Of_Aquisitions = 0
 
     for Counter_For_Number_Of_Samples in range(0, Current_Sensor_Calibration_Samples):
+
         # Instataneous read from ADC
         ADC_Current_Sensor_Reading = adc_1.read()
 
@@ -110,7 +114,7 @@ def Get_Value_From_Current_Sensor_ACS_712( Calculated_AC_Current_In_Calibraton )
     Calculated_AC_Current = abs(Calculated_absolute_AC_Current - Calculated_AC_Current_In_Calibraton)
 
     # Round at only 2 decimals
-    Calculated_AC_Current = round(Calculated_AC_Current, 2)
+    Calculated_AC_Current = round(Calculated_AC_Current, 1)
 
     # Return calculated current
     return Calculated_AC_Current
