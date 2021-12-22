@@ -18,3 +18,8 @@ Thus, through CAN communication, when transmitting certain frames, it is possibl
 3. To return the value of the voltage drop on the smart socket;
 4. To return the value of the current through the intelligent socket;
 5. To return the humidity value of the smart socket;
+
+The possibility of controlling the smart socket through the Raspberry Pi 3b + development board has been added, the board containing a CAN MCP2515 interface and a 5 "touch screen display attached.
+Thus, a Python application was created and was configured to launch when the development board is also powered.
+The created application has the possibility to read the voltage, current, power and humidity on the CAN communication line and to activate and deactivate the smart socket.
+The created application can only be run on Raspbian OS, so it is not currently optimized to work on Windows.
