@@ -23,3 +23,5 @@ The possibility of controlling the smart socket through the Raspberry Pi 3b + de
 Thus, a Python application was created and was configured to launch when the development board is also powered.
 The created application has the possibility to read the voltage, current, power and humidity on the CAN communication line and to activate and deactivate the smart socket.
 The created application can only be run on Raspbian OS, so it is not currently optimized to work on Windows.
+
+![2022-01-02-134704_800x600_scrot](https://user-images.githubusercontent.com/72782466/148778449-93b8be39-4963-483f-a3ec-b4599de5623b.png)
