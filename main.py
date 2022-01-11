@@ -34,9 +34,7 @@ import machine
 from machine import Pin
 from machine import ADC
 
-
 # -------------------- GLOBAL INITIALISATIONS ---------------------
-
 
 # print a message before starting initialisation
 print("===================================================")
@@ -167,58 +165,72 @@ def task_1(self):
 
     while True:
 
-        # -------------- SEND VOLTAGE FRAME ------------------------------
-        # Convert to bytes
-        voltage_bytes = convert_float_to_can_frame(Calculated_AC_Voltage)
+        # Receive messages from other tasks
+        msgs = self.recv()
+        for msg in msgs:
 
-        # Construct frame
-        voltage_frame = CANFrame(can_id=0x01, data=voltage_bytes)
+            # If data has arrived from other 2 tasks, then let's process it
+            print('------------------------')
 
-        # Send frame
-        error = can.sendMessage(voltage_frame)
+            if msg.type == 130:
+                # -------------- SEND VOLTAGE FRAME ------------------------------
+                # Convert to bytes
+                voltage_bytes = convert_float_to_can_frame(Calculated_AC_Voltage)
 
-        # -------------- SEND CURRENT FRAME ------------------------------
-        # Convert to bytes
-        current_bytes = convert_float_to_can_frame(Calculated_AC_Current)
+                # Construct frame
+                voltage_frame = CANFrame(can_id=0x01, data=voltage_bytes)
 
-        # Construct frame
-        current_frame = CANFrame(can_id=0x02, data=current_bytes)
+                # Send frame
+                error = can.sendMessage(voltage_frame)
 
-        # Send frame
-        error = can.sendMessage(current_frame)
+                # -------------- SEND CURRENT FRAME ------------------------------
+                # Convert to bytes
+                current_bytes = convert_float_to_can_frame(Calculated_AC_Current)
 
-        # -------------- SEND POWER FRAME ------------------------------
-        # Calculate power
-        Calculated_Electric_Power = Calculated_AC_Current * Calculated_AC_Voltage
+                # Construct frame
+                current_frame = CANFrame(can_id=0x02, data=current_bytes)
 
-        # Convert to bytes
-        Power_bytes = convert_float_to_can_frame(Calculated_Electric_Power)
+                # Send frame
+                error = can.sendMessage(current_frame)
 
-        # Construct frame
-        Power_frame = CANFrame(can_id=0x03, data=Power_bytes)
+                # -------------- SEND POWER FRAME ------------------------------
+                # Calculate power
+                Calculated_Electric_Power = Calculated_AC_Current * Calculated_AC_Voltage
 
-        # Send frame
-        error = can.sendMessage(Power_frame)
+                # Convert to bytes
+                Power_bytes = convert_float_to_can_frame(Calculated_Electric_Power)
 
-        # -------------- SEND Humidity FRAME ------------------------------
-        # Convert to bytes
-        Humidity_bytes = convert_float_to_can_frame(Measured_Humidity)
+                # Construct frame
+                Power_frame = CANFrame(can_id=0x03, data=Power_bytes)
 
-        # Construct frame
-        Humidity_frame = CANFrame(can_id=0x04, data=Humidity_bytes)
+                # Send frame
+                error = can.sendMessage(Power_frame)
 
-        # Send frame
-        error = can.sendMessage(Humidity_frame)
+                print('DATA FROM TASK 3:')
+                print('Measured Voltage:', Calculated_AC_Voltage)
+                print('Measured Current:', Calculated_AC_Current)
+                print('Measured Power:', Calculated_Electric_Power)
+
+            if msg.type == 135:
+                # -------------- SEND Humidity FRAME ------------------------------
+                # Convert to bytes
+                Humidity_bytes = convert_float_to_can_frame(Measured_Humidity)
+
+                # Construct frame
+                Humidity_frame = CANFrame(can_id=0x04, data=Humidity_bytes)
+
+                # Send frame
+                error = can.sendMessage(Humidity_frame)
+
+                print('DATA FROM TASK 2:')
+                print('Measured Humidity:', Measured_Humidity)
 
         print('------------------------')
-        print('Measured Voltage:', Calculated_AC_Voltage)
-        print('Measured Current:', Calculated_AC_Current)
-        print('Measured Power:', Calculated_Electric_Power)
-        print('Measured Humidity:', Measured_Humidity)
-        print('------------------------')
 
-        # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(100)]
+
+        # Wait until message arrives from other tasks
+        yield [pyRTOS.wait_for_message(self)]
+
 
 
 # =========================================================
@@ -237,12 +249,18 @@ def task_2(self):
     global Measured_Humidity
     global dht_sensor_object
 
+    # Set ready message for task_2
+    ready_message = 135
+
     # ---------------------- Infinite Cicle -----------------------------
     while True:
 
         # Measure humidity
         dht_sensor_object.measure()
         Measured_Humidity = dht_sensor_object.humidity()
+
+        # Send ready message to task 1
+        self.send(pyRTOS.Message(ready_message, self, "task_1"))
 
         # Call function to read CAN Message Buffer
         error, iframe = can.readMessage()
@@ -265,7 +283,8 @@ def task_2(self):
             Relay_Status.off()
 
         # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(100)]
+        yield [pyRTOS.delay(20)]
+
 
 # ==========================================================================
 #              DEFINE TASK OF PYRTOS
@@ -282,6 +301,9 @@ def task_3(self):
     # Point to global value
     global Calculated_AC_Voltage
 
+    # Set a ready message for task_3
+    ready_message = 130
+
     # ---------------------- Infinite Cicle -----------------------------
     while True:
 
@@ -291,14 +313,17 @@ def task_3(self):
         # Get Voltage from sensor
         Calculated_AC_Voltage = ZMPT101B_Voltage_Sensor.Get_Value_From_Voltage_Sensor_ZMPT101B( Voltage_Sensor_Zero_Point_Calibration )
 
+        # Send ready message to task 1
+        self.send(pyRTOS.Message(ready_message, self, "task_1"))
+
         # keep both delays same in order to avoid delay of one task over another
-        yield [pyRTOS.delay(100)]
+        yield [pyRTOS.delay(10)]
 
 
 # ================ CALL TASKS IN PYRTOS ENGINE ======================
-pyRTOS.add_task(pyRTOS.Task(task_1, priority=1, name="task_1"))
-pyRTOS.add_task(pyRTOS.Task(task_2, priority=1, name="task_2"))
-pyRTOS.add_task(pyRTOS.Task(task_3, priority=1, name="task_3"))
+pyRTOS.add_task(pyRTOS.Task(task_1, priority=1, name="task_1", mailbox=True))
+pyRTOS.add_task(pyRTOS.Task(task_2, priority=1, name="task_2", mailbox=True))
+pyRTOS.add_task(pyRTOS.Task(task_3, priority=1, name="task_3", mailbox=True))
 
 
 # Start pyRTOS
