@@ -25,3 +25,16 @@ The created application has the possibility to read the voltage, current, power 
 The created application can only be run on Raspbian OS, so it is not currently optimized to work on Windows.
 
 ![2022-01-02-134704_800x600_scrot](https://user-images.githubusercontent.com/72782466/148778449-93b8be39-4963-483f-a3ec-b4599de5623b.png)
+
+In terms of real-time requirements, it was necessary to implement a method of signaling the priority of tasks. As can be seen in the main.py file, all functions have the same running priority, but in order to avoid data collision, certain mechanisms have been created.
+
+The created tasks have the following main roles:
+
+1. The data to be used in all tasks will be set in global variables, so it will be possible to find in global variables the value of voltage, current and humidity;
+2. Task number 3 will be responsible for calculating current and voltage;
+3. Task number 2 will be responsible for measuring humidity and activating / deactivating the system relay, as appropriate.
+4. Task number 1 will be responsible for sending the data on the CAN communication protocol.
+
+
+Task 1 will wait until you receive a message (signal) from the other 2 tasks. If a READY signal has been received, then the received data will be processed and sent to the CAN communication protocol.
+For uniform execution, it has been decided that task 3 should be executed at an interval of 10 clock cycles, task 2 should be executed at an interval of 20 clock cycles, and task 1 should be executed when a message was received from one of the two tasks. Thus, pyRTOS provides a buffer in which messages will be stored, a buffer that is automatically deleted after receiving them.
